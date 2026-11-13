@@ -1,9 +1,5 @@
 ---
 title: "MLS Match Scoring Before and After Messi"
-format:
-  html:
-    theme: cosmo
-    toc: true
 execute:
   echo: false
   warning: false
@@ -11,96 +7,76 @@ execute:
 ---
 
 ```{r}
+#| fig-width: 10
 library(tidyverse)
 library(lubridate)
 
-mls <- read_csv("data/mls_modern.csv")
-
-messi_cutoff <- as.Date("2023-07-21")
-
-mls <- mls %>%
+mls <- read_csv("data/mls_modern.csv") %>%
   mutate(Date = dmy(Date)) %>%
-  filter(!is.na(HG), !is.na(AG)) %>%
+  filter(!is.na(HG) & !is.na(AG)) %>%
   mutate(
     total_goals = HG + AG,
-    era = if_else(
-      Date < messi_cutoff,
-      "Pre-Messi Era (2012–July 2023)",
-      "Messi Era (July 2023–2026)"
-    ),
-    inter_miami = Home == "Inter Miami CF" | Away == "Inter Miami CF" |
-      Home == "Inter Miami" | Away == "Inter Miami",
-    point_group = if_else(inter_miami, "Inter Miami CF", era)
+    group = case_when(
+      Date < as.Date("2023-07-21") ~ "Pre-Messi Era (2012–July 2023)",
+      Date >= as.Date("2023-07-21") &
+        Home != "Inter Miami" & Away != "Inter Miami" ~
+        "Messi Era: Other MLS Matches",
+      Date >= as.Date("2023-07-21") &
+        (Home == "Inter Miami" | Away == "Inter Miami") ~
+        "Messi Era: Inter Miami Matches"
+    )
   )
 
-era_summary <- mls %>%
-  group_by(era) %>%
-  summarise(
-    matches = n(),
-    mean_goals = mean(total_goals),
-    draw_rate = mean(HG == AG),
-    mean_goal_margin = mean(abs(HG - AG)),
-    .groups = "drop"
-  )
+goals_by_period <- mls %>%
+  mutate(period = if_else(Date < as.Date("2023-07-21"), "before", "after")) %>%
+  group_by(period) %>%
+  summarise(average = mean(total_goals), .groups = "drop")
 
-inter_miami_summary <- mls %>%
-  filter(inter_miami, Date >= messi_cutoff) %>%
+inter_miami_record <- mls %>%
+  filter(group == "Messi Era: Inter Miami Matches") %>%
   summarise(
     matches = n(),
     wins = sum(
-      (Home %in% c("Inter Miami CF", "Inter Miami") & HG > AG) |
-        (Away %in% c("Inter Miami CF", "Inter Miami") & AG > HG)
+      (Home == "Inter Miami" & HG > AG) |
+        (Away == "Inter Miami" & AG > HG)
     ),
     draws = sum(HG == AG),
     losses = sum(
-      (Home %in% c("Inter Miami CF", "Inter Miami") & HG < AG) |
-        (Away %in% c("Inter Miami CF", "Inter Miami") & AG < HG)
+      (Home == "Inter Miami" & HG < AG) |
+        (Away == "Inter Miami" & AG < HG)
     ),
-    goals_for = mean(if_else(
-      Home %in% c("Inter Miami CF", "Inter Miami"), HG, AG
-    )),
-    goals_against = mean(if_else(
-      Home %in% c("Inter Miami CF", "Inter Miami"), AG, HG
-    ))
+    goals_for = mean(if_else(Home == "Inter Miami", HG, AG)),
+    goals_against = mean(if_else(Home == "Inter Miami", AG, HG))
   )
-```
 
-```{r}
-ggplot(mls, aes(x = Date, y = total_goals, color = point_group)) +
-  geom_jitter(alpha = 0.25, height = 0.25, width = 0) +
-  geom_smooth(
-    data = mls,
-    aes(x = Date, y = total_goals, color = era, group = era),
-    inherit.aes = FALSE,
-    method = "loess",
-    se = TRUE,
-    linewidth = 1
+ggplot(mls, aes(x = Date, y = total_goals)) +
+  geom_jitter(
+    aes(color = group),
+    alpha = 0.35,
+    height = 0.25,
+    size = 1.4
   ) +
+  geom_smooth(method = "loess", color = "black", se = FALSE) +
   scale_color_manual(
     values = c(
-      "Pre-Messi Era (2012–July 2023)" = "#1f4e78",
-      "Messi Era (July 2023–2026)" = "#d9534f",
-      "Inter Miami CF" = "#f7b5cd"
+      "Pre-Messi Era (2012–July 2023)" = "#5c768d",
+      "Messi Era: Other MLS Matches" = "#1f4e78",
+      "Messi Era: Inter Miami Matches" = "#e63973"
     )
   ) +
-  guides(color = guide_legend(ncol = 1, title.position = "top")) +
-  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
   labs(
-    title = "Goals per MLS Match Over Time",
-    subtitle = "n = 6,326 real MLS matches, 2012–2026",
-    x = "Match date",
-    y = "Total goals",
-    color = "Match group",
-    caption = "Source: Football-Data.co.uk MLS Match Records"
+    title = "Total Goals per MLS Match (2012–2026)",
+    subtitle = paste0(
+      "n = ", scales::comma(nrow(mls)),
+      " real MLS matches; Inter Miami highlighted since Messi's July 2023 debut"
+    ),
+    x = "Match Date",
+    y = "Total Goals Scored",
+    color = "Match Category",
+    caption = "Source: Football-Data.co.uk Official MLS Match Records"
   ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    plot.title = element_text(face = "bold"),
-    legend.position = "bottom",
-    legend.box = "vertical",
-    panel.grid.minor = element_blank(),
-    plot.caption = element_text(hjust = 0)
-  )
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom")
 ```
 
-Match scoring rose modestly after July 21, 2023: average goals increased from `r sprintf("%.2f", era_summary$mean_goals[era_summary$era == "Pre-Messi Era (2012–July 2023)"])` before the cutoff to `r sprintf("%.2f", era_summary$mean_goals[era_summary$era == "Messi Era (July 2023–2026)"])` afterward. Draws remained about one quarter of matches (`r sprintf("%.1f%%", 100 * era_summary$draw_rate[era_summary$era == "Pre-Messi Era (2012–July 2023)"])` before and `r sprintf("%.1f%%", 100 * era_summary$draw_rate[era_summary$era == "Messi Era (July 2023–2026)"])` after), and the average goal margin was nearly unchanged (`r sprintf("%.2f", era_summary$mean_goal_margin[era_summary$era == "Pre-Messi Era (2012–July 2023)"])` versus `r sprintf("%.2f", era_summary$mean_goal_margin[era_summary$era == "Messi Era (July 2023–2026)"])`). The records point to somewhat higher scoring, but not a clear shift in overall competitiveness. Since the cutoff, Inter Miami recorded `r inter_miami_summary$wins` wins, `r inter_miami_summary$draws` draws, and `r inter_miami_summary$losses` losses in `r inter_miami_summary$matches` matches, averaging `r sprintf("%.2f", inter_miami_summary$goals_for)` goals scored and `r sprintf("%.2f", inter_miami_summary$goals_against)` conceded per match. The source lists the club as “Inter Miami”; the chart highlights those matches in pink. These comparisons describe the records and do not establish that Messi caused league-wide changes.
+Matches averaged `r sprintf("%.2f", goals_by_period$average[goals_by_period$period == "before"])` goals before July 21, 2023, and `r sprintf("%.2f", goals_by_period$average[goals_by_period$period == "after"])` afterward. Since that date, Inter Miami recorded `r inter_miami_record$wins` wins, `r inter_miami_record$draws` draws, and `r inter_miami_record$losses` losses in `r inter_miami_record$matches` matches, averaging `r sprintf("%.2f", inter_miami_record$goals_for)` goals scored and `r sprintf("%.2f", inter_miami_record$goals_against)` conceded per match.
