@@ -1,5 +1,7 @@
 ---
-title: "About"
+title: "About This Site"
 ---
 
-About this site
+This site explores scoring patterns in Major League Soccer using match records from Football-Data.co.uk. It compares matches before and after Lionel Messi's arrival in July 2023 and highlights Inter Miami's recorded results.
+
+The comparisons are descriptive. They summarize match outcomes and do not establish that any one player caused league-wide changes.

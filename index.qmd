@@ -1,355 +1,106 @@
 ---
-title: "MLS Transformation & The Messi Impact (2023-2026)"
-author: "Ángel Emilio Frías Arias"
-format: {html: {theme: cosmo, toc: true, code-fold: true}}
-execute: {echo: false, warning: false, message: false}
+title: "MLS Match Scoring Before and After Messi"
+format:
+  html:
+    theme: cosmo
+    toc: true
+execute:
+  echo: false
+  warning: false
+  message: false
 ---
-
-# Executive summary
-
-Major League Soccer's recent transformation combines the arrival of Lionel Messi at Inter Miami in July 2023 with changes that were already underway: expanding club markets, growing attendance, a global Apple distribution agreement, and increasing interest from commercial partners. Messi created an unusually visible demand shock for selected fixtures, but his arrival alone cannot explain league-wide growth. This report uses four complementary views to explore attendance, ticket prices, venue scale, and audience development across 2023-2026.
-
-The analysis uses a reproducible **synthetic dataset of 7,000 match observations**, not an official MLS match log. All simulated records, including Messi involvement, ticket prices, stadium attendance, and TV audiences, are explicitly illustrative. The 30-team roster reflects the league's expansion, with San Diego FC entering the synthetic schedule in 2025. The 2026 season is modeled as a full season for comparability, not represented as final observed data.
-
-# Data and method
-
-Each active team-season contributes observations, and a fixed random seed makes the dataset repeatable. Messi-involved games become possible after his July 2023 arrival and occur at a higher modeled rate in subsequent seasons. Venue relocations to Arrowhead and Gillette are represented as illustrative events; Atlanta's Mercedes-Benz Stadium is represented as a regular large-venue context. Match-level TV viewership is simulated. Annual subscriber and global view totals in the final chart are scenario inputs and should not be mistaken for Apple's unpublished audited totals.
 
 ```{r}
 library(tidyverse)
-library(scales)
+library(lubridate)
 
-set.seed(20261107)
+mls <- read_csv("data/mls_modern.csv")
 
-teams <- tribble(
-  ~team, ~first_season, ~home_venue, ~home_type, ~home_capacity,
-  "Atlanta United", 2017, "Mercedes-Benz Stadium", "NFL Mega-Stadium", 71000,
-  "Austin FC", 2021, "Q2 Stadium", "Soccer-Specific", 20700,
-  "CF Montreal", 2012, "Stade Saputo", "Soccer-Specific", 20000,
-  "Charlotte FC", 2022, "Bank of America Stadium", "NFL Mega-Stadium", 38000,
-  "Chicago Fire", 1998, "Soldier Field", "NFL Mega-Stadium", 61500,
-  "Colorado Rapids", 1996, "Dick's Sporting Goods Park", "Soccer-Specific", 20000,
-  "Columbus Crew", 1996, "Lower.com Field", "Soccer-Specific", 20000,
-  "D.C. United", 1996, "Audi Field", "Soccer-Specific", 20000,
-  "FC Cincinnati", 2019, "TQL Stadium", "Soccer-Specific", 26000,
-  "FC Dallas", 1996, "Toyota Stadium", "Soccer-Specific", 20000,
-  "Houston Dynamo", 2006, "Shell Energy Stadium", "Soccer-Specific", 22000,
-  "Inter Miami", 2020, "Chase Stadium", "Soccer-Specific", 21000,
-  "LA Galaxy", 1996, "Dignity Health Sports Park", "Soccer-Specific", 27000,
-  "Los Angeles FC", 2018, "BMO Stadium", "Soccer-Specific", 22000,
-  "Minnesota United", 2017, "Allianz Field", "Soccer-Specific", 20000,
-  "Nashville SC", 2020, "GEODIS Park", "Soccer-Specific", 30000,
-  "New England Revolution", 1996, "Gillette Stadium", "NFL Mega-Stadium", 20000,
-  "New York City FC", 2015, "Yankee Stadium", "Soccer-Specific", 30000,
-  "New York Red Bulls", 1996, "Red Bull Arena", "Soccer-Specific", 25000,
-  "Orlando City", 2015, "Inter&Co Stadium", "Soccer-Specific", 25000,
-  "Philadelphia Union", 2010, "Subaru Park", "Soccer-Specific", 20000,
-  "Portland Timbers", 2011, "Providence Park", "Soccer-Specific", 25000,
-  "Real Salt Lake", 2005, "America First Field", "Soccer-Specific", 20000,
-  "San Diego FC", 2025, "Snapdragon Stadium", "Soccer-Specific", 35000,
-  "San Jose Earthquakes", 1996, "PayPal Park", "Soccer-Specific", 20000,
-  "Seattle Sounders", 2009, "Lumen Field", "NFL Mega-Stadium", 37000,
-  "Sporting Kansas City", 1996, "Children's Mercy Park", "Soccer-Specific", 20000,
-  "St. Louis City SC", 2023, "CITYPARK", "Soccer-Specific", 22000,
-  "Toronto FC", 2007, "BMO Field", "Soccer-Specific", 30000,
-  "Vancouver Whitecaps", 2011, "BC Place", "NFL Mega-Stadium", 27000
-)
+messi_cutoff <- as.Date("2023-07-21")
 
-team_seasons <- expand_grid(
-  season = 2023:2026,
-  team = teams$team
-) %>%
-  left_join(teams, by = "team") %>%
-  filter(season >= first_season)
-
-matches <- team_seasons[
-  sample(rep(seq_len(nrow(team_seasons)), length.out = 7000)),
-] %>%
-  as_tibble() %>%
-  group_by(team, season) %>%
+mls <- mls %>%
+  mutate(Date = dmy(Date)) %>%
+  filter(!is.na(HG), !is.na(AG)) %>%
   mutate(
-    match_date = as.Date(paste0(season, "-01-01")) + sample(0:364, n(), replace = TRUE),
-    special_relocation =
-      (team == "Sporting Kansas City" & season == 2024 & row_number() == 1) |
-      (team == "New England Revolution" & season == 2024 & row_number() == 1)
-  ) %>%
-  ungroup() %>%
-  mutate(
-    match_id = row_number(),
-    messi_probability = case_when(
-      team != "Inter Miami" ~ 0,
-      season == 2023 & match_date < as.Date("2023-07-21") ~ 0,
-      season == 2023 ~ 0.8,
-      TRUE ~ 0.9
+    total_goals = HG + AG,
+    era = if_else(
+      Date < messi_cutoff,
+      "Pre-Messi Era (2012–July 2023)",
+      "Messi Era (July 2023–2026)"
     ),
-    messi_involved = if_else(
-      special_relocation | runif(n()) < messi_probability,
-      "Con Messi",
-      "Sin Messi"
-    ),
-    stadium_name = case_when(
-      special_relocation & team == "Sporting Kansas City" ~ "GEHA Field at Arrowhead Stadium",
-      special_relocation & team == "New England Revolution" ~ "Gillette Stadium",
-      TRUE ~ home_venue
-    ),
-    venue_type = if_else(special_relocation, "NFL Mega-Stadium", home_type),
-    stadium_capacity = case_when(
-      special_relocation & team == "Sporting Kansas City" ~ 72000,
-      special_relocation & team == "New England Revolution" ~ 65500,
-      TRUE ~ home_capacity
-    ),
-    utilization_target = if_else(
-      venue_type == "NFL Mega-Stadium",
-      runif(n(), 0.68, 0.96),
-      runif(n(), 0.72, 0.99)
-    ) +
-      if_else(messi_involved == "Con Messi", 0.06, 0) +
-      (season - 2023) * 0.008 +
-      rnorm(n(), 0, 0.045),
-    utilization_target = pmin(1, pmax(0.5, utilization_target)),
-    attendance = pmin(
-      stadium_capacity,
-      pmax(15000, round(stadium_capacity * utilization_target))
-    ),
-    capacity_utilization_pct = 100 * attendance / stadium_capacity,
-    avg_ticket_price = pmin(
-      850,
-      pmax(
-        40,
-        round(
-          40 + 810 * rbeta(
-            n(),
-            if_else(messi_involved == "Con Messi", 2.2, 1.25),
-            if_else(messi_involved == "Con Messi", 2.5, 5.5)
-          ) + if_else(messi_involved == "Con Messi", 65, 0)
-        )
-      )
-    ),
-    tv_viewers_k = round(pmin(
-      1200,
-      pmax(
-        10,
-        rlnorm(
-          n(),
-          log(65 + 18 * (season - 2023) + if_else(messi_involved == "Con Messi", 145, 0)),
-          0.48
-        )
-      )
-    ))
-  ) %>%
-  select(
-    match_id, season, match_date, team, stadium_name, venue_type,
-    stadium_capacity, attendance, capacity_utilization_pct,
-    avg_ticket_price, messi_involved, tv_viewers_k
+    inter_miami = Home == "Inter Miami CF" | Away == "Inter Miami CF" |
+      Home == "Inter Miami" | Away == "Inter Miami",
+    point_group = if_else(inter_miami, "Inter Miami CF", era)
   )
 
-stopifnot(
-  nrow(matches) == 7000,
-  n_distinct(matches$match_id) == 7000,
-  identical(sort(unique(matches$season)), 2023:2026),
-  n_distinct(matches$team) == 30,
-  all(matches$attendance >= 15000 & matches$attendance <= 75000),
-  all(matches$avg_ticket_price >= 40 & matches$avg_ticket_price <= 850),
-  all(matches$tv_viewers_k >= 10)
-)
-
-season_summary <- matches %>%
-  group_by(season) %>%
+era_summary <- mls %>%
+  group_by(era) %>%
   summarise(
     matches = n(),
-    mean_attendance = mean(attendance),
-    mean_ticket_price = mean(avg_ticket_price),
-    mean_tv_viewers_k = mean(tv_viewers_k),
+    mean_goals = mean(total_goals),
+    draw_rate = mean(HG == AG),
+    mean_goal_margin = mean(abs(HG - AG)),
     .groups = "drop"
   )
 
-season_summary %>%
-  transmute(
-    Season = season,
-    `Simulated observations` = comma(matches),
-    `Mean attendance` = comma(round(mean_attendance)),
-    `Mean ticket price` = dollar(mean_ticket_price, accuracy = 1),
-    `Mean viewers per match (000s)` = comma(round(mean_tv_viewers_k))
-  )
-
-venue_examples <- matches %>%
-  filter(stadium_name %in% c(
-    "Mercedes-Benz Stadium", "GEHA Field at Arrowhead Stadium", "Gillette Stadium"
-  )) %>%
-  group_by(stadium_name, venue_type) %>%
-  slice_max(attendance, n = 1, with_ties = FALSE) %>%
-  ungroup()
-
-season_media <- season_summary %>%
-  left_join(
-    matches %>% distinct(season, team) %>% count(season, name = "active_teams"),
-    by = "season"
-  ) %>%
-  mutate(
-    global_views_m = mean_tv_viewers_k * active_teams * 34 / 1000,
-    subscribers_m = c(1.0, 1.55, 1.95, 2.25)
-  ) %>%
-  select(season, mean_tv_viewers_k, global_views_m, subscribers_m) %>%
-  pivot_longer(
-    -season,
-    names_to = "metric",
-    values_to = "value"
-  ) %>%
-  mutate(
-    metric = recode(
-      metric,
-      mean_tv_viewers_k = "Mean global viewers per match (thousands)",
-      global_views_m = "Illustrative annual global views (millions)",
-      subscribers_m = "Illustrative Season Pass subscribers (millions)"
-    )
+inter_miami_summary <- mls %>%
+  filter(inter_miami, Date >= messi_cutoff) %>%
+  summarise(
+    matches = n(),
+    wins = sum(
+      (Home %in% c("Inter Miami CF", "Inter Miami") & HG > AG) |
+        (Away %in% c("Inter Miami CF", "Inter Miami") & AG > HG)
+    ),
+    draws = sum(HG == AG),
+    losses = sum(
+      (Home %in% c("Inter Miami CF", "Inter Miami") & HG < AG) |
+        (Away %in% c("Inter Miami CF", "Inter Miami") & AG < HG)
+    ),
+    goals_for = mean(if_else(
+      Home %in% c("Inter Miami CF", "Inter Miami"), HG, AG
+    )),
+    goals_against = mean(if_else(
+      Home %in% c("Inter Miami CF", "Inter Miami"), AG, HG
+    ))
   )
 ```
 
-The annual table is a scale check, not an official MLS attendance series. The synthetic rows are distributed across active team-season cells to avoid the common problem of a large random sample accidentally omitting a club or season. Every numeric value below is generated from the stated assumptions.
-
-# Gráfico 1: Asistencia y precio de entrada
-
-The main scatterplot tests whether the modeled match-level relationship between crowd size and average ticket price differs for games involving Messi. Each dot is one of the 7,000 synthetic observations; semi-transparency reduces overplotting while preserving dense regions. Separate linear trend lines summarize each category. Because ticket prices and attendance are both generated in the same model, the slopes are descriptive and must not be interpreted as a causal estimate of Messi's effect.
-
 ```{r}
-ggplot(matches, aes(x = attendance, y = avg_ticket_price, color = messi_involved)) +
-  geom_point(alpha = 0.4, size = 1.8) +
-  geom_smooth(method = "lm", se = FALSE, linewidth = 1.1) +
-  scale_x_continuous(labels = comma) +
-  scale_y_continuous(labels = dollar) +
-  scale_color_manual(values = c("Con Messi" = "#d64b38", "Sin Messi" = "#176b87")) +
+ggplot(mls, aes(x = Date, y = total_goals, color = point_group)) +
+  geom_jitter(alpha = 0.25, height = 0.25, width = 0) +
+  geom_smooth(
+    data = mls,
+    aes(x = Date, y = total_goals, color = era, group = era),
+    inherit.aes = FALSE,
+    method = "loess",
+    se = TRUE,
+    linewidth = 1
+  ) +
+  scale_color_manual(
+    values = c(
+      "Pre-Messi Era (2012–July 2023)" = "#1f4e78",
+      "Messi Era (July 2023–2026)" = "#d9534f",
+      "Inter Miami CF" = "#f7b5cd"
+    )
+  ) +
+  guides(color = guide_legend(ncol = 1, title.position = "top")) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
   labs(
-    title = "Asistencia y precio promedio de entrada",
-    subtitle = "7,000 observaciones sintéticas; líneas separadas de mínimos cuadrados",
-    x = "Asistencia (personas)",
-    y = "Precio promedio simulado (USD)",
-    color = "Participación de Messi"
+    title = "Goals per MLS Match Over Time",
+    subtitle = "n = 6,326 real MLS matches, 2012–2026",
+    x = "Match date",
+    y = "Total goals",
+    color = "Match group",
+    caption = "Source: Football-Data.co.uk MLS Match Records"
   ) +
   theme_minimal(base_size = 12) +
-  theme(legend.position = "bottom")
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    panel.grid.minor = element_blank(),
+    plot.caption = element_text(hjust = 0)
+  )
 ```
 
-Read the red series as a modeled high-demand scenario, not as evidence that every Messi match commanded the same price premium. In real ticket markets, averages vary with opponent, seat inventory, fees, resale activity, venue configuration, and when a ticket is purchased. A rigorous causal analysis would compare matched fixtures and use observed ticket transactions while controlling for those factors.
-
-# Gráfico 2: Distribución de asistencia por temporada
-
-The second visualization puts the four annual distributions side by side in a vertical facet grid. Density curves reveal the shape and upper tail of attendance, while the jittered observations show where individual simulated matches fall. The 2023 panel includes a deliberately modeled Messi window beginning July 21, the date of his Inter Miami debut; it is therefore the clearest panel for seeing how a midseason shock can coexist with a pre-existing annual baseline. The 2024-2026 panels use a higher modeled share of Messi-involved matches.
-
-```{r}
-ggplot(matches, aes(x = attendance, color = messi_involved, fill = messi_involved)) +
-  geom_density(alpha = 0.22, linewidth = 0.75, adjust = 1.1) +
-  geom_point(
-    aes(y = 0),
-    position = position_jitter(height = 0.000001),
-    alpha = 0.12,
-    size = 0.65
-  ) +
-  facet_grid(season ~ .) +
-  scale_x_continuous(labels = comma) +
-  scale_color_manual(values = c("Con Messi" = "#d64b38", "Sin Messi" = "#176b87")) +
-  scale_fill_manual(values = c("Con Messi" = "#d64b38", "Sin Messi" = "#176b87")) +
-  labs(
-    title = "Distribución de asistencia por temporada",
-    subtitle = "Curvas de densidad y observaciones individuales; todos los datos son simulados",
-    x = "Asistencia (personas)",
-    y = "Densidad",
-    color = "Participación de Messi",
-    fill = "Participación de Messi"
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(legend.position = "bottom", strip.text = element_text(face = "bold"))
-```
-
-The annual facets help separate distribution changes from isolated record crowds. They do not prove that the league-wide attendance baseline jumped because of Messi: the simulation intentionally raises the probability of high-attendance Messi-linked matches, while MLS attendance was already increasing before 2023. The July 2023 boundary also cautions against labeling the entire 2023 season “post-Messi.”
-
-# Gráfico 3: Recintos, capacidad y asistencia
-
-Venue capacity changes the interpretation of a raw attendance count. A 25,000-person crowd can fill a soccer-specific ground, while a similar crowd occupies only part of an NFL stadium. This violin-and-boxplot comparison shows match attendance by venue type; jittered points retain individual observations, and point size encodes the listed capacity. The three named markers identify selected simulated examples for Mercedes-Benz Stadium, Arrowhead, and Gillette, rather than claiming that a particular synthetic record is the historical match attendance.
-
-```{r}
-ggplot(
-  matches,
-  aes(x = venue_type, y = attendance, fill = venue_type)
-) +
-  geom_violin(trim = TRUE, alpha = 0.55, color = NA) +
-  geom_boxplot(width = 0.18, outlier.shape = NA, alpha = 0.7) +
-  geom_jitter(aes(size = stadium_capacity), width = 0.12, alpha = 0.18, color = "#172a3a") +
-  geom_point(
-    data = venue_examples,
-    aes(x = venue_type, y = attendance),
-    inherit.aes = FALSE,
-    shape = 23,
-    size = 3.4,
-    fill = "#f2b134",
-    color = "#172a3a"
-  ) +
-  geom_text(
-    data = venue_examples,
-    aes(x = venue_type, y = attendance, label = stadium_name),
-    inherit.aes = FALSE,
-    position = position_nudge(x = 0.18),
-    hjust = 0,
-    size = 2.8,
-    check_overlap = TRUE
-  ) +
-  scale_y_continuous(labels = comma, limits = c(12000, 78000)) +
-  scale_size_continuous(range = c(1, 3.2), labels = label_number(scale = 1 / 1000, suffix = "k")) +
-  scale_fill_manual(values = c("Soccer-Specific" = "#27856a", "NFL Mega-Stadium" = "#d28a2e")) +
-  labs(
-    title = "Asistencia observada y escala del estadio",
-    subtitle = "Tamaño del punto = capacidad listada; marcadores dorados = ejemplos de recintos",
-    x = "Tipo de recinto",
-    y = "Asistencia simulada (personas)",
-    fill = "Tipo de recinto",
-    size = "Capacidad"
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(legend.position = "bottom")
-```
-
-Arrowhead and Gillette have hosted relocated high-profile matches with crowds reported above 72,000 and 65,000 respectively; Atlanta United's Mercedes-Benz Stadium regularly demonstrates the league's ability to draw very large crowds in a flexible NFL venue. Such fixtures are exceptional and should not be confused with ordinary soccer-stadium capacity or average attendance. The synthetic comparison emphasizes that capacity, utilization, and headcount answer different questions; the highlighted points are illustrative, not historical rows.
-
-# Gráfico 4: Audiencia y alcance de Season Pass
-
-MLS Season Pass changed the distribution model by putting league matches in a single global streaming product, with English- and Spanish-language options. Apple and MLS have not published a complete audited season-by-season subscriber series or global viewing totals. To avoid presenting private metrics as facts, this chart separates the simulated mean viewers per match from explicitly illustrative annual global-view and subscriber scenarios. Each metric receives its own facet and scale so unit differences remain visible.
-
-```{r}
-ggplot(season_media, aes(x = season, y = value, color = metric, group = metric)) +
-  geom_line(linewidth = 1) +
-  geom_point(size = 3) +
-  facet_wrap(~metric, scales = "free_y", ncol = 1) +
-  scale_x_continuous(breaks = 2023:2026) +
-  scale_y_continuous(labels = label_number(accuracy = 0.1)) +
-  scale_color_manual(values = c(
-    "Mean global viewers per match (thousands)" = "#176b87",
-    "Illustrative annual global views (millions)" = "#d28a2e",
-    "Illustrative Season Pass subscribers (millions)" = "#d64b38"
-  )) +
-  labs(
-    title = "Audiencia global y escenarios de streaming",
-    subtitle = "Las series de suscriptores y visualizaciones son escenarios, no cifras oficiales de Apple",
-    x = "Temporada",
-    y = "Valor según unidad indicada en cada panel",
-    color = "Indicador"
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(legend.position = "none", strip.text = element_text(face = "bold"))
-```
-
-The match-viewer series comes from the synthetic `tv_viewers_k` field; annual global views are an annualized scenario derived from those simulated match audiences, and the subscriber path is a separate illustrative assumption. Industry coverage has described Season Pass subscriber growth as more than doubling and estimates above two million, but those reports are not an audited public subscriber ledger. Spanish-language audiences have exceeded half for some Messi-era broadcasts, a meaningful signal of international reach but not a league-wide language share for every match.
-
-# Synthesis and limitations
-
-The four views tell a coherent but deliberately bounded story: Messi-linked matches are modeled with more demand, larger event venues can absorb exceptional crowds, annual distributions can shift without every match being a sellout, and global streaming reach matters even when precise subscription data remain private. MLS's growth also reflects expansion, existing fan bases, stadium investment, media distribution, and the approaching 2026 FIFA World Cup. The World Cup creates an opportunity to convert temporary attention into long-term supporters, but it does not guarantee future attendance or revenue.
-
-- The 7,000 rows are synthetic observations, not official MLS attendance, ticket, or viewing records.
-- Match-level ticket prices, TV audiences, and Messi involvement are generated from assumptions; trend lines are descriptive and not causal estimates.
-- Subscriber and global-view series are illustrative scenarios because comparable audited MLS Season Pass totals are not public.
-- Venue capacity reflects modeled soccer configurations for some multipurpose stadiums. A listed stadium's full event capacity is not necessarily the capacity used for a soccer match.
-- The league had 29 clubs in 2023-2024 and 30 from San Diego FC's 2025 entry; the synthetic roster accounts for that timing.
-
-# Selected references
-
-- [MLS newsroom](https://www.mlssoccer.com/news/) provides league attendance announcements and match coverage.
-- [Apple Newsroom](https://www.apple.com/newsroom/) provides Apple's official announcements about MLS Season Pass and Lionel Messi.
-- [FIFA: 2026 World Cup](https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026) provides the tournament context.
+Match scoring rose modestly after July 21, 2023: average goals increased from `r sprintf("%.2f", era_summary$mean_goals[era_summary$era == "Pre-Messi Era (2012–July 2023)"])` before the cutoff to `r sprintf("%.2f", era_summary$mean_goals[era_summary$era == "Messi Era (July 2023–2026)"])` afterward. Draws remained about one quarter of matches (`r sprintf("%.1f%%", 100 * era_summary$draw_rate[era_summary$era == "Pre-Messi Era (2012–July 2023)"])` before and `r sprintf("%.1f%%", 100 * era_summary$draw_rate[era_summary$era == "Messi Era (July 2023–2026)"])` after), and the average goal margin was nearly unchanged (`r sprintf("%.2f", era_summary$mean_goal_margin[era_summary$era == "Pre-Messi Era (2012–July 2023)"])` versus `r sprintf("%.2f", era_summary$mean_goal_margin[era_summary$era == "Messi Era (July 2023–2026)"])`). The records point to somewhat higher scoring, but not a clear shift in overall competitiveness. Since the cutoff, Inter Miami recorded `r inter_miami_summary$wins` wins, `r inter_miami_summary$draws` draws, and `r inter_miami_summary$losses` losses in `r inter_miami_summary$matches` matches, averaging `r sprintf("%.2f", inter_miami_summary$goals_for)` goals scored and `r sprintf("%.2f", inter_miami_summary$goals_against)` conceded per match. The source lists the club as “Inter Miami”; the chart highlights those matches in pink. These comparisons describe the records and do not establish that Messi caused league-wide changes.
